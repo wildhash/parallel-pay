@@ -11,6 +11,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.DASHBOARD_PORT || 3000;
 
+// Track if cleanup has been performed
+let isShuttingDown = false;
+
 // Load deployment info
 let deploymentInfo: any = null;
 const deploymentFile = path.join(__dirname, '..', 'deployments', 'monad-testnet.json');
@@ -162,20 +165,24 @@ const server = app.listen(PORT, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('\n🛑 SIGTERM received, shutting down gracefully...');
+const gracefulShutdown = () => {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+  
+  console.log('\n🛑 Shutdown signal received, shutting down gracefully...');
   server.close(() => {
     console.log('✅ Server closed');
-    provider.destroy();
+    try {
+      provider.destroy();
+      console.log('✅ Provider destroyed');
+    } catch (error) {
+      console.error('⚠️  Error destroying provider:', error);
+    }
     process.exit(0);
   });
-});
+};
 
-process.on('SIGINT', () => {
-  console.log('\n🛑 SIGINT received, shutting down gracefully...');
-  server.close(() => {
-    console.log('✅ Server closed');
-    provider.destroy();
-    process.exit(0);
-  });
-});
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
