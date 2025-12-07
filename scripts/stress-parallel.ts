@@ -108,6 +108,11 @@ async function main() {
   );
 
   console.log('\n✅ Stress test completed!');
+  
+  // Cleanup resources before exit
+  monitor.cleanup();
+  refundExecutor.cleanup();
+  
   console.log('\n💡 Tip: Try different stream counts:');
   console.log('   npm run stress-parallel 100');
   console.log('   npm run stress-parallel 200');

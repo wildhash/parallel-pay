@@ -231,6 +231,10 @@ async function main() {
   console.log('   2. Automatic breach detection');
   console.log('   3. Refund triggering on violations');
   console.log('   4. Stream monitoring at scale\n');
+
+  // Cleanup resources before exit
+  monitor.cleanup();
+  refundExecutor.cleanup();
 }
 
 main()

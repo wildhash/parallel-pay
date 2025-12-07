@@ -48,6 +48,7 @@ export class SLAMonitor {
   private signer: ethers.Signer;
   private monitoringInterval: NodeJS.Timeout | null = null;
   private streamIds: Set<bigint> = new Set();
+  private breachListenerCleanup: (() => void) | null = null;
 
   constructor(
     oracleAddress: string,
@@ -347,7 +348,12 @@ export class SLAMonitor {
    * Listen for SLA breach events
    */
   async listenForBreaches(callback: (event: any) => void): Promise<void> {
-    this.oracleContract.on('SLABreached', (streamId, breachType, expectedValue, actualValue, timestamp, event) => {
+    // Remove existing listener if any
+    if (this.breachListenerCleanup) {
+      this.breachListenerCleanup();
+    }
+
+    const listener = (streamId: any, breachType: any, expectedValue: any, actualValue: any, timestamp: any, event: any) => {
       console.log(`🚨 SLA BREACHED EVENT:`, {
         streamId: streamId.toString(),
         breachType,
@@ -356,8 +362,44 @@ export class SLAMonitor {
         timestamp: new Date(Number(timestamp) * 1000).toISOString(),
       });
       callback(event);
-    });
+    };
+
+    this.oracleContract.on('SLABreached', listener);
+
+    // Store cleanup function
+    this.breachListenerCleanup = () => {
+      this.oracleContract.off('SLABreached', listener);
+    };
 
     console.log('👂 Listening for SLA breach events...');
+  }
+
+  /**
+   * Stop listening for breach events
+   */
+  stopListeningForBreaches(): void {
+    if (this.breachListenerCleanup) {
+      this.breachListenerCleanup();
+      this.breachListenerCleanup = null;
+      console.log('🛑 Stopped listening for breach events');
+    }
+  }
+
+  /**
+   * Clear all monitored streams
+   */
+  clearStreams(): void {
+    this.streamIds.clear();
+    console.log('🗑️  Cleared all monitored streams');
+  }
+
+  /**
+   * Cleanup all resources (intervals, listeners, data)
+   */
+  cleanup(): void {
+    this.stopMonitoring();
+    this.stopListeningForBreaches();
+    this.clearStreams();
+    console.log('✅ SLAMonitor cleanup complete');
   }
 }

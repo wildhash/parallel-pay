@@ -152,11 +152,30 @@ app.get('/api/payment-requests/:count?', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n🌐 ParallelPay Dashboard running at http://localhost:${PORT}`);
   console.log(`\n📊 API Endpoints:`);
   console.log(`  GET /api/info                    - Deployment info`);
   console.log(`  GET /api/streams/:count          - List streams`);
   console.log(`  GET /api/stream/:id              - Get stream details`);
   console.log(`  GET /api/payment-requests/:count - List payment requests\n`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('\n🛑 SIGTERM received, shutting down gracefully...');
+  server.close(() => {
+    console.log('✅ Server closed');
+    provider.destroy();
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('\n🛑 SIGINT received, shutting down gracefully...');
+  server.close(() => {
+    console.log('✅ Server closed');
+    provider.destroy();
+    process.exit(0);
+  });
 });
