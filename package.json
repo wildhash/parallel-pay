@@ -1,0 +1,44 @@
+{
+  "name": "monad-parallelstream",
+  "version": "1.0.0",
+  "description": "Massively parallel micro-payment streams exploiting Monad's EVM for real-time value transfer at scale.",
+  "main": "index.js",
+  "scripts": {
+    "compile": "node scripts/compile.js",
+    "verify": "npx tsx scripts/verify-contracts.ts",
+    "deploy": "npx tsx scripts/deploy.ts",
+    "stress-test": "npx tsx scripts/stress-test.ts",
+    "stress-parallel": "npx tsx scripts/stress-parallel.ts",
+    "simulate-degradation": "npx tsx scripts/simulate-degradation.ts",
+    "test-local": "npx tsx scripts/test-local.ts",
+    "test-hardhat": "npx hardhat test",
+    "dashboard": "npx tsx dashboard/server.ts",
+    "test": "npm run compile && npm run test-hardhat"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.1.2",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/chai": "^5.2.3",
+    "@types/express": "^5.0.6",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.10.1",
+    "chai": "^6.2.1",
+    "ethers": "^6.16.0",
+    "hardhat": "^3.0.17",
+    "solc": "^0.8.24",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typechain": "^8.3.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1"
+  },
+  "type": "module"
+}
