@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ParallelPay Dashboard - Monad Parallel EVM</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            color: #333;
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .section {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+
+        .streams-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .stream-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+
+        .stream-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .stream-card.active {
+            border-color: #4caf50;
+        }
+
+        .stream-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .stream-id {
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #667eea;
+        }
+
+        .badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .badge.active {
+            background: #4caf50;
+            color: white;
+        }
+
+        .badge.inactive {
+            background: #999;
+            color: white;
+        }
+
+        .stream-info {
+            margin-bottom: 10px;
+        }
+
+        .info-label {
+            color: #666;
+            font-size: 0.85em;
+            display: inline-block;
+            width: 140px;
+        }
+
+        .info-value {
+            color: #333;
+            font-weight: 500;
+        }
+
+        .address {
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+        }
+
+        .progress-bar {
+            background: #e0e0e0;
+            height: 8px;
+            border-radius: 4px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            height: 100%;
+            transition: width 0.3s;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .refresh-btn:hover {
+            background: #5568d3;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .contracts-info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .highlight {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: white;
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ ParallelPay Dashboard</h1>
+            <p class="subtitle">Real-time Micro-Payment Streaming on Monad's Parallel EVM</p>
+        </header>
+
+        <div class="stats-grid" id="stats">
+            <div class="stat-card">
+                <div class="stat-label">Total Streams</div>
+                <div class="stat-value" id="totalStreams">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Streams</div>
+                <div class="stat-value" id="activeStreams">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Value Locked</div>
+                <div class="stat-value" id="tvl">- ETH</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Network</div>
+                <div class="stat-value" style="font-size: 1.2em;">Monad</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>📊 Contract Addresses</h2>
+            </div>
+            <div class="contracts-info" id="contracts">
+                Loading...
+            </div>
+        </div>
+
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>💰 Payment Streams</h2>
+                <button class="refresh-btn" onclick="loadStreams()">🔄 Refresh</button>
+            </div>
+            <div id="streamsContainer" class="loading">
+                Loading streams...
+            </div>
+        </div>
+
+        <footer>
+            <p>Built for Monad's Parallel EVM | Optimized for Massive Concurrency</p>
+        </footer>
+    </div>
+
+    <script>
+        let deploymentInfo = null;
+
+        async function loadInfo() {
+            try {
+                const response = await fetch('/api/info');
+                const data = await response.json();
+                deploymentInfo = data.deployment;
+
+                if (deploymentInfo) {
+                    document.getElementById('contracts').innerHTML = `
+                        <div><span class="highlight">ParallelPay:</span> ${deploymentInfo.contracts.ParallelPay}</div>
+                        <div><span class="highlight">X402Payment:</span> ${deploymentInfo.contracts.X402Payment}</div>
+                        <div style="margin-top: 10px;"><span class="highlight">Deployer:</span> ${deploymentInfo.deployer}</div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading info:', error);
+            }
+        }
+
+        async function loadStreams() {
+            const container = document.getElementById('streamsContainer');
+            container.innerHTML = '<div class="loading">Loading streams...</div>';
+
+            try {
+                const response = await fetch('/api/streams/20');
+                const data = await response.json();
+
+                if (data.streams.length === 0) {
+                    container.innerHTML = '<div class="loading">No streams found. Run the stress test to create some!</div>';
+                    return;
+                }
+
+                let totalValue = 0;
+                let activeCount = 0;
+
+                const streamsHTML = data.streams.map(stream => {
+                    if (stream.isActive) activeCount++;
+                    totalValue += parseFloat(stream.remainingBalance);
+
+                    const now = Date.now() / 1000;
+                    const progress = stream.startTime > now ? 0 :
+                        stream.stopTime < now ? 100 :
+                        ((now - stream.startTime) / (stream.stopTime - stream.startTime)) * 100;
+
+                    return `
+                        <div class="stream-card ${stream.isActive ? 'active' : ''}">
+                            <div class="stream-header">
+                                <span class="stream-id">Stream #${stream.id}</span>
+                                <span class="badge ${stream.isActive ? 'active' : 'inactive'}">
+                                    ${stream.isActive ? 'Active' : 'Inactive'}
+                                </span>
+                            </div>
+                            <div class="stream-info">
+                                <span class="info-label">Recipient:</span>
+                                <span class="info-value address">${stream.recipient.slice(0, 10)}...</span>
+                            </div>
+                            <div class="stream-info">
+                                <span class="info-label">Deposit:</span>
+                                <span class="info-value">${stream.deposit} ETH</span>
+                            </div>
+                            <div class="stream-info">
+                                <span class="info-label">Remaining:</span>
+                                <span class="info-value">${stream.remainingBalance} ETH</span>
+                            </div>
+                            <div class="stream-info">
+                                <span class="info-label">Available:</span>
+                                <span class="info-value">${stream.availableBalance} ETH</span>
+                            </div>
+                            <div class="stream-info">
+                                <span class="info-label">Rate:</span>
+                                <span class="info-value">${stream.ratePerSecond} ETH/s</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progress}%"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                container.innerHTML = `<div class="streams-container">${streamsHTML}</div>`;
+
+                // Update stats
+                document.getElementById('totalStreams').textContent = data.totalStreams;
+                document.getElementById('activeStreams').textContent = activeCount;
+                document.getElementById('tvl').textContent = totalValue.toFixed(4) + ' ETH';
+
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error loading streams: ${error.message}</div>`;
+            }
+        }
+
+        // Initial load
+        loadInfo();
+        loadStreams();
+
+        // Auto refresh every 10 seconds
+        setInterval(loadStreams, 10000);
+    </script>
+</body>
+</html>
