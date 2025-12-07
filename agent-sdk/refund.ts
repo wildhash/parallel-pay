@@ -33,6 +33,8 @@ export class RefundExecutor {
   private oracleContract: ethers.Contract;
   private streamFactoryContract: ethers.Contract;
   private signer: ethers.Signer;
+  private autoRefundCleanup: (() => void) | null = null;
+  private refundListenerCleanup: (() => void) | null = null;
 
   constructor(
     refundManagerAddress: string,
@@ -215,44 +217,52 @@ export class RefundExecutor {
     breachThreshold: number = 1,
     severityThreshold: number = 3
   ): Promise<void> {
+    // Stop existing auto-refund if running
+    if (this.autoRefundCleanup) {
+      this.stopAutoRefund();
+    }
+
     const breachCounts = new Map<string, number>();
 
     console.log(`🤖 Starting automatic refund execution`);
     console.log(`   Breach threshold: ${breachThreshold}`);
     console.log(`   Severity threshold: ${severityThreshold}`);
 
-    this.oracleContract.on(
-      'SLABreached',
-      async (streamId, breachType, expectedValue, actualValue, timestamp) => {
-        const key = streamId.toString();
-        const count = (breachCounts.get(key) || 0) + 1;
-        breachCounts.set(key, count);
+    const listener = async (streamId: any, breachType: any, expectedValue: any, actualValue: any, timestamp: any) => {
+      const key = streamId.toString();
+      const count = (breachCounts.get(key) || 0) + 1;
+      breachCounts.set(key, count);
 
-        console.log(`🚨 SLA BREACH detected:`, {
-          streamId: streamId.toString(),
+      console.log(`🚨 SLA BREACH detected:`, {
+        streamId: streamId.toString(),
+        breachType,
+        breachCount: count,
+        expected: expectedValue.toString(),
+        actual: actualValue.toString(),
+      });
+
+      // Execute appropriate refund based on breach count
+      if (count >= severityThreshold) {
+        console.log(`⚠️  Severe breach threshold reached (${count}/${severityThreshold})`);
+        await this.executeFullRefund(streamId, `Severe ${breachType} breach`);
+        breachCounts.delete(key); // Reset counter after full refund
+      } else if (count >= breachThreshold) {
+        console.log(`⚠️  Breach threshold reached (${count}/${breachThreshold})`);
+        await this.executePartialRefund({
+          streamId,
           breachType,
-          breachCount: count,
-          expected: expectedValue.toString(),
-          actual: actualValue.toString(),
+          breachValue: Number(actualValue),
         });
-
-        // Execute appropriate refund based on breach count
-        if (count >= severityThreshold) {
-          // Severe breach - execute full refund or cancel
-          console.log(`⚠️  Severe breach threshold reached (${count}/${severityThreshold})`);
-          await this.executeFullRefund(streamId, `Severe ${breachType} breach`);
-          breachCounts.delete(key); // Reset counter after full refund
-        } else if (count >= breachThreshold) {
-          // Moderate breach - execute partial refund
-          console.log(`⚠️  Breach threshold reached (${count}/${breachThreshold})`);
-          await this.executePartialRefund({
-            streamId,
-            breachType,
-            breachValue: Number(actualValue),
-          });
-        }
       }
-    );
+    };
+
+    this.oracleContract.on('SLABreached', listener);
+
+    // Store cleanup function
+    this.autoRefundCleanup = () => {
+      this.oracleContract.off('SLABreached', listener);
+      breachCounts.clear();
+    };
 
     console.log('👂 Listening for SLA breach events...');
   }
@@ -261,8 +271,11 @@ export class RefundExecutor {
    * Stop listening for breach events
    */
   stopAutoRefund(): void {
-    this.oracleContract.removeAllListeners('SLABreached');
-    console.log('🛑 Automatic refund execution stopped');
+    if (this.autoRefundCleanup) {
+      this.autoRefundCleanup();
+      this.autoRefundCleanup = null;
+      console.log('🛑 Automatic refund execution stopped');
+    }
   }
 
   /**
@@ -286,44 +299,71 @@ export class RefundExecutor {
    * Listen for refund events
    */
   async listenForRefunds(callback: (event: any) => void): Promise<void> {
-    this.refundManagerContract.on(
-      'PartialRefundExecuted',
-      (streamId, executor, amount, reason, event) => {
-        console.log(`💰 PARTIAL REFUND EVENT:`, {
-          streamId: streamId.toString(),
-          executor,
-          amount: ethers.formatEther(amount),
-          reason,
-        });
-        callback({ type: 'partial', event });
-      }
-    );
+    // Remove existing listeners if any
+    if (this.refundListenerCleanup) {
+      this.stopListeningForRefunds();
+    }
 
-    this.refundManagerContract.on(
-      'FullRefundExecuted',
-      (streamId, executor, amount, reason, event) => {
-        console.log(`💰 FULL REFUND EVENT:`, {
-          streamId: streamId.toString(),
-          executor,
-          amount: ethers.formatEther(amount),
-          reason,
-        });
-        callback({ type: 'full', event });
-      }
-    );
+    const partialListener = (streamId: any, executor: any, amount: any, reason: any, event: any) => {
+      console.log(`💰 PARTIAL REFUND EVENT:`, {
+        streamId: streamId.toString(),
+        executor,
+        amount: ethers.formatEther(amount),
+        reason,
+      });
+      callback({ type: 'partial', event });
+    };
 
-    this.refundManagerContract.on(
-      'StreamCancelledByRefund',
-      (streamId, executor, reason, event) => {
-        console.log(`🚫 STREAM CANCELLED EVENT:`, {
-          streamId: streamId.toString(),
-          executor,
-          reason,
-        });
-        callback({ type: 'cancel', event });
-      }
-    );
+    const fullListener = (streamId: any, executor: any, amount: any, reason: any, event: any) => {
+      console.log(`💰 FULL REFUND EVENT:`, {
+        streamId: streamId.toString(),
+        executor,
+        amount: ethers.formatEther(amount),
+        reason,
+      });
+      callback({ type: 'full', event });
+    };
+
+    const cancelListener = (streamId: any, executor: any, reason: any, event: any) => {
+      console.log(`🚫 STREAM CANCELLED EVENT:`, {
+        streamId: streamId.toString(),
+        executor,
+        reason,
+      });
+      callback({ type: 'cancel', event });
+    };
+
+    this.refundManagerContract.on('PartialRefundExecuted', partialListener);
+    this.refundManagerContract.on('FullRefundExecuted', fullListener);
+    this.refundManagerContract.on('StreamCancelledByRefund', cancelListener);
+
+    // Store cleanup function
+    this.refundListenerCleanup = () => {
+      this.refundManagerContract.off('PartialRefundExecuted', partialListener);
+      this.refundManagerContract.off('FullRefundExecuted', fullListener);
+      this.refundManagerContract.off('StreamCancelledByRefund', cancelListener);
+    };
 
     console.log('👂 Listening for refund events...');
+  }
+
+  /**
+   * Stop listening for refund events
+   */
+  stopListeningForRefunds(): void {
+    if (this.refundListenerCleanup) {
+      this.refundListenerCleanup();
+      this.refundListenerCleanup = null;
+      console.log('🛑 Stopped listening for refund events');
+    }
+  }
+
+  /**
+   * Cleanup all resources (listeners)
+   */
+  cleanup(): void {
+    this.stopAutoRefund();
+    this.stopListeningForRefunds();
+    console.log('✅ RefundExecutor cleanup complete');
   }
 }

@@ -11,6 +11,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.DASHBOARD_PORT || 3000;
 
+// Track if cleanup has been performed
+let isShuttingDown = false;
+
 // Load deployment info
 let deploymentInfo: any = null;
 const deploymentFile = path.join(__dirname, '..', 'deployments', 'monad-testnet.json');
@@ -152,7 +155,7 @@ app.get('/api/payment-requests/:count?', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n🌐 ParallelPay Dashboard running at http://localhost:${PORT}`);
   console.log(`\n📊 API Endpoints:`);
   console.log(`  GET /api/info                    - Deployment info`);
@@ -160,3 +163,26 @@ app.listen(PORT, () => {
   console.log(`  GET /api/stream/:id              - Get stream details`);
   console.log(`  GET /api/payment-requests/:count - List payment requests\n`);
 });
+
+// Graceful shutdown
+const gracefulShutdown = () => {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+  
+  console.log('\n🛑 Shutdown signal received, shutting down gracefully...');
+  server.close(() => {
+    console.log('✅ Server closed');
+    try {
+      provider.destroy();
+      console.log('✅ Provider destroyed');
+    } catch (error) {
+      console.error('⚠️  Error destroying provider:', error);
+    }
+    process.exit(0);
+  });
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
