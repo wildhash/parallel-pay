@@ -72,6 +72,7 @@ struct SLAStream {
     uint256 remainingBalance;// Current balance
     bool isActive;           // Stream status
     SLA slaConfig;          // SLA thresholds
+    RefundTiers refundTiers; // Graduated refund tiers (optional)
     uint256 breachCount;     // Number of breaches
     uint256 totalRefunded;   // Total refunded amount
 }
@@ -113,11 +114,41 @@ struct MetricReport {
 - Full refunds for severe breaches
 - Stream cancellation for critical violations
 - Batch refund execution
+- **Graduated refund tiers** based on breach severity
 
 **Authorization**:
 - Owner can authorize/revoke agents
 - Only authorized agents can execute refunds
 - Integration with AgentOracle for breach detection
+
+**Graduated Refund Tiers**:
+The system supports tiered refunds that scale based on breach severity:
+- **Tier 1 (Minor)**: Small refund percentage for minor SLA violations
+- **Tier 2 (Moderate)**: Medium refund percentage for noticeable degradation
+- **Tier 3 (Severe)**: Large refund percentage for major SLA violations
+
+```solidity
+struct RefundTiers {
+    uint16 tier1RefundPercent;  // e.g., 500 (5%)
+    uint16 tier2RefundPercent;  // e.g., 1500 (15%)
+    uint16 tier3RefundPercent;  // e.g., 5000 (50%)
+    uint16 tier1Threshold;      // Breach value for tier 1
+    uint16 tier2Threshold;      // Breach value for tier 2
+}
+```
+
+**Tiered Refund Flow**:
+```
+Breach Detected → Calculate Tier → Determine Refund % → Execute Refund
+      │                │                    │                   │
+      │                │                    │                   │
+  breachValue    if >= tier2Threshold   tier3Percent      Emit Events
+                 elif >= tier1Threshold tier2Percent    (TieredRefundExecuted)
+                 else                    tier1Percent
+```
+
+**Backward Compatibility**:
+Streams created without tiers continue to use the fixed `refundPercentOnBreach` value from the SLA configuration.
 
 #### ParallelPay.sol
 **Purpose**: Basic payment streaming (legacy)  
@@ -409,13 +440,167 @@ Monad Mainnet:
 5. **Insurance Layer**: Optional insurance for streams
 6. **Cross-Chain**: Bridge to other parallel EVMs
 
+## Graduated Refund Tiers - Configuration Examples
+
+### Example 1: Conservative SaaS Service
+For a SaaS platform with high uptime requirements:
+
+```typescript
+const refundTiers = {
+  tier1RefundPercent: 200,    // 2% - Minor latency spikes
+  tier2RefundPercent: 1000,   // 10% - Service degradation
+  tier3RefundPercent: 3000,   // 30% - Major outage
+  tier1Threshold: 100,        // < 100ms extra latency
+  tier2Threshold: 500,        // 100-499ms extra latency, >= 500ms severe
+};
+
+// Create stream with tiers
+const tx = await streamFactory.createStreamWithTiers(
+  recipientAddress,
+  ethers.ZeroAddress,
+  startTime,
+  stopTime,
+  slaConfig,
+  refundTiers,
+  { value: ethers.parseEther('10.0') }
+);
+```
+
+### Example 2: Aggressive API Service
+For a high-performance API with strict SLAs:
+
+```typescript
+const refundTiers = {
+  tier1RefundPercent: 1000,   // 10% - Any degradation
+  tier2RefundPercent: 2500,   // 25% - Noticeable issues
+  tier3RefundPercent: 7500,   // 75% - Critical failure
+  tier1Threshold: 50,         // Very low tolerance
+  tier2Threshold: 200,
+};
+```
+
+### Example 3: Balanced Cloud Service
+For a cloud service with moderate expectations:
+
+```typescript
+const refundTiers = {
+  tier1RefundPercent: 500,    // 5% - Minor issues
+  tier2RefundPercent: 1500,   // 15% - Moderate problems
+  tier3RefundPercent: 5000,   // 50% - Severe breach
+  tier1Threshold: 100,
+  tier2Threshold: 500,
+};
+```
+
+## Migration Guide: Fixed Percentage to Graduated Tiers
+
+### Step 1: Identify Current Streams
+Existing streams using fixed `refundPercentOnBreach` continue to work without changes:
+
+```solidity
+// Old method - still supported
+const slaConfig = {
+  maxLatencyMs: 500,
+  minUptimePercent: 9900,
+  maxErrorRate: 100,
+  maxJitterMs: 100,
+  refundPercentOnBreach: 1000,  // 10% flat rate
+  autoStopOnSevereBreach: true,
+};
+
+await streamFactory.createStream(..., slaConfig, ...);
+```
+
+### Step 2: Design Your Tier Structure
+Map your current fixed percentage to a tiered structure:
+
+```
+Current: 10% flat refund
+↓
+Graduated:
+- Minor (< threshold1): 5%
+- Moderate (threshold1-threshold2): 10%  ← matches old rate
+- Severe (>= threshold2): 25%
+```
+
+### Step 3: Create New Streams with Tiers
+For new streams, use `createStreamWithTiers`:
+
+```typescript
+const refundTiers = {
+  tier1RefundPercent: 500,    // 5%
+  tier2RefundPercent: 1000,   // 10% (matches old flat rate)
+  tier3RefundPercent: 2500,   // 25%
+  tier1Threshold: 100,
+  tier2Threshold: 500,
+};
+
+await streamFactory.createStreamWithTiers(
+  recipient,
+  token,
+  startTime,
+  stopTime,
+  slaConfig,  // refundPercentOnBreach ignored when tiers present
+  refundTiers,
+  { value: amount }
+);
+```
+
+### Step 4: Update SDK Integration
+Update your agent SDK calls to leverage tier information:
+
+```typescript
+// Before
+const result = await refundExecutor.executePartialRefund({
+  streamId: 1n,
+  breachType: 'latency',
+  breachValue: 300,
+});
+
+// After - same call, but result now includes tier info
+const result = await refundExecutor.executePartialRefund({
+  streamId: 1n,
+  breachType: 'latency',
+  breachValue: 300,
+});
+
+if (result.tier) {
+  console.log(`Applied tier ${result.tier} refund`);
+  console.log(`Refund amount: ${ethers.formatEther(result.refundAmount)} ETH`);
+}
+```
+
+### Step 5: Query Tier Configuration
+Check stream tier configuration programmatically:
+
+```typescript
+const tiers = await refundExecutor.getRefundTiers(streamId);
+
+console.log('Tier Configuration:', {
+  tier1: `${tiers.tier1RefundPercent / 100}% (breach < ${tiers.tier1Threshold})`,
+  tier2: `${tiers.tier2RefundPercent / 100}% (breach < ${tiers.tier2Threshold})`,
+  tier3: `${tiers.tier3RefundPercent / 100}% (breach >= ${tiers.tier2Threshold})`,
+});
+```
+
+### Step 6: Monitor Events
+Listen for tiered refund events:
+
+```typescript
+streamFactory.on('TieredRefundExecuted', (streamId, tier, amount, breachType, breachValue) => {
+  console.log(`Tiered Refund: Stream ${streamId}, Tier ${tier}, Amount ${ethers.formatEther(amount)}`);
+});
+```
+
 ## Conclusion
 
 ParallelStream demonstrates how Monad's parallel EVM can be leveraged to build sophisticated financial protocols with:
 - Trustless SLA enforcement
-- Automatic refund execution
+- Automatic refund execution with **graduated tiers**
 - Massive scalability (50-200+ concurrent operations)
 - AI-powered monitoring
 - Gas-efficient implementation
+
+The graduated refund tier system provides fine-grained control over refund policies, allowing service providers to better match refund amounts to breach severity while maintaining backward compatibility with existing streams.
 
 The system provides a blueprint for building complex, high-throughput DeFi protocols that maintain security while achieving unprecedented performance.

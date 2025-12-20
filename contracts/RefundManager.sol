@@ -19,6 +19,12 @@ interface ISLAStreamFactory {
         string calldata breachType,
         uint256 breachValue
     ) external;
+    
+    function calculateTieredRefund(
+        uint256 streamId,
+        uint256 breachValue,
+        string calldata breachType
+    ) external view returns (uint256 refundAmount, uint8 tier);
 }
 
 /**
@@ -55,6 +61,14 @@ contract RefundManager {
         address indexed executor,
         uint256 amount,
         string reason
+    );
+
+    event TieredRefundExecuted(
+        uint256 indexed streamId,
+        uint8 tier,
+        uint256 amount,
+        string breachType,
+        uint256 breachValue
     );
 
     event FullRefundExecuted(
@@ -141,6 +155,46 @@ contract RefundManager {
         });
 
         emit PartialRefundExecuted(streamId, msg.sender, 0, breachType);
+    }
+
+    /**
+     * @notice Execute a partial refund with tier information
+     * @param streamId The stream ID
+     * @param breachType Type of breach
+     * @param breachValue Measured value that breached
+     * @return tier The tier that was applied
+     * @return refundAmount The refund amount that will be executed
+     */
+    function executePartialRefundWithTier(
+        uint256 streamId,
+        string calldata breachType,
+        uint256 breachValue
+    ) external onlyAuthorized returns (uint8 tier, uint256 refundAmount) {
+        // Calculate tier before execution
+        (refundAmount, tier) = ISLAStreamFactory(streamFactory).calculateTieredRefund(
+            streamId,
+            breachValue,
+            breachType
+        );
+        
+        // Call the stream factory to report breach and trigger refund
+        ISLAStreamFactory(streamFactory).reportSLABreach(
+            streamId,
+            breachType,
+            breachValue
+        );
+
+        uint256 executionId = nextExecutionId++;
+        refundExecutions[executionId] = RefundExecution({
+            streamId: streamId,
+            amount: refundAmount,
+            reason: breachType,
+            executor: msg.sender,
+            timestamp: block.timestamp
+        });
+
+        emit PartialRefundExecuted(streamId, msg.sender, refundAmount, breachType);
+        emit TieredRefundExecuted(streamId, tier, refundAmount, breachType, breachValue);
     }
 
     /**
