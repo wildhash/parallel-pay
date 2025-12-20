@@ -246,6 +246,9 @@ contract SLAStreamFactory {
         if (refundTiers.tier1RefundPercent > 10000) revert InvalidSLAConfig();
         if (refundTiers.tier2RefundPercent > 10000) revert InvalidSLAConfig();
         if (refundTiers.tier3RefundPercent > 10000) revert InvalidSLAConfig();
+        // Ensure thresholds are positive and properly ordered
+        if (refundTiers.tier1Threshold == 0) revert InvalidSLAConfig();
+        if (refundTiers.tier2Threshold == 0) revert InvalidSLAConfig();
         if (refundTiers.tier1Threshold >= refundTiers.tier2Threshold) revert InvalidSLAConfig();
 
         uint256 duration = stopTime - startTime;
@@ -305,12 +308,13 @@ contract SLAStreamFactory {
         uint256 breachValue,
         string calldata breachType
     ) public view returns (uint256 refundAmount, uint8 tier) {
+        // Validate stream exists (deposit > 0 means stream was created)
         SLAStream storage stream = streams[streamId];
+        if (stream.deposit == 0) revert StreamNotActive();
         
-        // Check if using tiered refunds (any tier percent > 0)
-        bool usingTiers = stream.refundTiers.tier1RefundPercent > 0 || 
-                         stream.refundTiers.tier2RefundPercent > 0 || 
-                         stream.refundTiers.tier3RefundPercent > 0;
+        // Check if using tiered refunds (all thresholds > 0 means tiers configured)
+        bool usingTiers = stream.refundTiers.tier1Threshold > 0 && 
+                         stream.refundTiers.tier2Threshold > 0;
         
         if (!usingTiers) {
             // Use legacy fixed percentage

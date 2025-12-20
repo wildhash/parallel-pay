@@ -224,6 +224,63 @@ describe('GraduatedRefundTiers', () => {
       ).to.be.revertedWithCustomError(streamFactory, 'InvalidSLAConfig');
     });
 
+    it('should reject zero thresholds', async () => {
+      const startTime = Math.floor(Date.now() / 1000) + 60;
+      const stopTime = startTime + 3600;
+      const amount = ethers.parseEther('1.0');
+
+      const slaConfig = {
+        maxLatencyMs: 500,
+        minUptimePercent: 9900,
+        maxErrorRate: 100,
+        maxJitterMs: 100,
+        refundPercentOnBreach: 0,
+        autoStopOnSevereBreach: false,
+      };
+
+      // Test zero tier1Threshold
+      const invalidTiers1 = {
+        tier1RefundPercent: 500,
+        tier2RefundPercent: 1500,
+        tier3RefundPercent: 5000,
+        tier1Threshold: 0,  // Invalid: must be > 0
+        tier2Threshold: 500,
+      };
+
+      await expect(
+        streamFactory.connect(sender).createStreamWithTiers(
+          recipient.address,
+          ethers.ZeroAddress,
+          startTime,
+          stopTime,
+          slaConfig,
+          invalidTiers1,
+          { value: amount }
+        )
+      ).to.be.revertedWithCustomError(streamFactory, 'InvalidSLAConfig');
+
+      // Test zero tier2Threshold
+      const invalidTiers2 = {
+        tier1RefundPercent: 500,
+        tier2RefundPercent: 1500,
+        tier3RefundPercent: 5000,
+        tier1Threshold: 100,
+        tier2Threshold: 0,  // Invalid: must be > 0
+      };
+
+      await expect(
+        streamFactory.connect(sender).createStreamWithTiers(
+          recipient.address,
+          ethers.ZeroAddress,
+          startTime,
+          stopTime,
+          slaConfig,
+          invalidTiers2,
+          { value: amount }
+        )
+      ).to.be.revertedWithCustomError(streamFactory, 'InvalidSLAConfig');
+    });
+
     it('should support backward compatibility with legacy fixed percentage', async () => {
       const startTime = Math.floor(Date.now() / 1000) + 60;
       const stopTime = startTime + 3600;

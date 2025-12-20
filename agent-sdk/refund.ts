@@ -98,9 +98,10 @@ export class RefundExecutor {
         );
         refundAmount = amount;
         tier = Number(tierNum);
-      } catch (e) {
+      } catch (e: any) {
         // If calculateTieredRefund fails, continue without tier info
         console.log('   Note: Could not calculate tier information');
+        console.log(`   Reason: ${e.message || 'Unknown error'}`);
       }
 
       const tx = await this.refundManagerContract.executePartialRefund(
