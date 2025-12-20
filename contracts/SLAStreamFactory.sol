@@ -7,13 +7,22 @@ pragma solidity ^0.8.24;
  * @dev Extends streaming functionality with SLA monitoring and conditional refunds
  */
 contract SLAStreamFactory {
+    /// @notice Graduated refund tiers configuration
+    struct RefundTiers {
+        uint16 tier1RefundPercent;  // Minor breach refund (basis points 0-10000)
+        uint16 tier2RefundPercent;  // Moderate breach refund (basis points 0-10000)
+        uint16 tier3RefundPercent;  // Severe breach refund (basis points 0-10000)
+        uint16 tier1Threshold;      // Breach value threshold for tier 1
+        uint16 tier2Threshold;      // Breach value threshold for tier 2
+    }
+
     /// @notice SLA threshold configuration
     struct SLA {
         uint16 maxLatencyMs;          // Maximum acceptable latency in milliseconds
         uint16 minUptimePercent;      // Minimum uptime percentage (0-10000 for 0.00%-100.00%)
         uint16 maxErrorRate;          // Maximum error rate (0-10000 for 0.00%-100.00%)
         uint16 maxJitterMs;           // Maximum jitter in milliseconds
-        uint16 refundPercentOnBreach; // Refund percentage on breach (0-10000)
+        uint16 refundPercentOnBreach; // Refund percentage on breach (0-10000) - for backward compatibility
         bool autoStopOnSevereBreach;  // Automatically stop stream on severe breach
     }
 
@@ -29,6 +38,7 @@ contract SLAStreamFactory {
         uint256 remainingBalance;
         bool isActive;
         SLA slaConfig;
+        RefundTiers refundTiers;     // Graduated refund tiers (optional, zero values mean use legacy)
         uint256 breachCount;
         uint256 totalRefunded;
     }
@@ -74,6 +84,14 @@ contract SLAStreamFactory {
         address indexed recipient,
         uint256 refundAmount,
         string reason
+    );
+
+    event TieredRefundExecuted(
+        uint256 indexed streamId,
+        uint8 tier,
+        uint256 amount,
+        string breachType,
+        uint256 breachValue
     );
 
     event WithdrawalMade(
@@ -171,6 +189,7 @@ contract SLAStreamFactory {
             remainingBalance: msg.value,
             isActive: true,
             slaConfig: slaConfig,
+            refundTiers: RefundTiers(0, 0, 0, 0, 0), // Empty tiers - use legacy refundPercentOnBreach
             breachCount: 0,
             totalRefunded: 0
         });
@@ -193,6 +212,135 @@ contract SLAStreamFactory {
             slaConfig.maxJitterMs,
             slaConfig.refundPercentOnBreach
         );
+    }
+
+    /**
+     * @notice Create a new SLA-enforced payment stream with graduated refund tiers
+     * @param recipient The address receiving the stream
+     * @param token Token address (address(0) for ETH)
+     * @param startTime When the stream starts
+     * @param stopTime When the stream stops
+     * @param slaConfig SLA configuration
+     * @param refundTiers Graduated refund tier configuration
+     * @return streamId The ID of the created stream
+     */
+    function createStreamWithTiers(
+        address recipient,
+        address token,
+        uint256 startTime,
+        uint256 stopTime,
+        SLA calldata slaConfig,
+        RefundTiers calldata refundTiers
+    ) external payable returns (uint256 streamId) {
+        if (startTime >= stopTime) revert InvalidTimeRange();
+        if (msg.value == 0) revert InvalidDeposit();
+        if (recipient == address(0)) revert Unauthorized();
+        if (token != address(0)) revert InvalidDeposit(); // Only ETH for now
+
+        // Validate SLA config
+        if (slaConfig.minUptimePercent > 10000) revert InvalidSLAConfig();
+        if (slaConfig.maxErrorRate > 10000) revert InvalidSLAConfig();
+        if (slaConfig.refundPercentOnBreach > 10000) revert InvalidSLAConfig();
+        
+        // Validate refund tiers
+        if (refundTiers.tier1RefundPercent > 10000) revert InvalidSLAConfig();
+        if (refundTiers.tier2RefundPercent > 10000) revert InvalidSLAConfig();
+        if (refundTiers.tier3RefundPercent > 10000) revert InvalidSLAConfig();
+        if (refundTiers.tier1Threshold >= refundTiers.tier2Threshold) revert InvalidSLAConfig();
+
+        uint256 duration = stopTime - startTime;
+        uint256 ratePerSecond = msg.value / duration;
+        
+        if (ratePerSecond == 0) revert InvalidDeposit();
+
+        streamId = nextStreamId++;
+
+        // Store in isolated slot for parallel execution
+        streams[streamId] = SLAStream({
+            sender: msg.sender,
+            recipient: recipient,
+            token: token,
+            deposit: msg.value,
+            startTime: startTime,
+            stopTime: stopTime,
+            ratePerSecond: ratePerSecond,
+            remainingBalance: msg.value,
+            isActive: true,
+            slaConfig: slaConfig,
+            refundTiers: refundTiers,
+            breachCount: 0,
+            totalRefunded: 0
+        });
+
+        emit StreamCreated(
+            streamId,
+            msg.sender,
+            recipient,
+            msg.value,
+            startTime,
+            stopTime,
+            ratePerSecond
+        );
+
+        emit SLAConfigured(
+            streamId,
+            slaConfig.maxLatencyMs,
+            slaConfig.minUptimePercent,
+            slaConfig.maxErrorRate,
+            slaConfig.maxJitterMs,
+            slaConfig.refundPercentOnBreach
+        );
+    }
+
+    /**
+     * @notice Calculate tiered refund amount based on breach severity
+     * @param streamId The ID of the stream
+     * @param breachValue The measured value that breached the SLA
+     * @param breachType Type of breach (for context)
+     * @return refundAmount The calculated refund amount
+     * @return tier The tier that was applied (0 for legacy, 1-3 for tiered)
+     */
+    function calculateTieredRefund(
+        uint256 streamId,
+        uint256 breachValue,
+        string calldata breachType
+    ) public view returns (uint256 refundAmount, uint8 tier) {
+        SLAStream storage stream = streams[streamId];
+        
+        // Check if using tiered refunds (any tier percent > 0)
+        bool usingTiers = stream.refundTiers.tier1RefundPercent > 0 || 
+                         stream.refundTiers.tier2RefundPercent > 0 || 
+                         stream.refundTiers.tier3RefundPercent > 0;
+        
+        if (!usingTiers) {
+            // Use legacy fixed percentage
+            refundAmount = (stream.deposit * stream.slaConfig.refundPercentOnBreach) / 10000;
+            tier = 0; // Legacy mode
+        } else {
+            // Determine tier based on breach value
+            uint16 refundPercent;
+            
+            if (breachValue >= stream.refundTiers.tier2Threshold) {
+                // Tier 3: Severe breach
+                refundPercent = stream.refundTiers.tier3RefundPercent;
+                tier = 3;
+            } else if (breachValue >= stream.refundTiers.tier1Threshold) {
+                // Tier 2: Moderate breach
+                refundPercent = stream.refundTiers.tier2RefundPercent;
+                tier = 2;
+            } else {
+                // Tier 1: Minor breach
+                refundPercent = stream.refundTiers.tier1RefundPercent;
+                tier = 1;
+            }
+            
+            refundAmount = (stream.deposit * refundPercent) / 10000;
+        }
+        
+        // Ensure we don't refund more than remaining balance
+        if (refundAmount > stream.remainingBalance) {
+            refundAmount = stream.remainingBalance;
+        }
     }
 
     /**
@@ -297,19 +445,19 @@ contract SLAStreamFactory {
 
         emit SLABreached(streamId, breachType, breachValue, block.timestamp);
 
-        // Calculate refund amount
-        uint256 refundAmount = (stream.deposit * stream.slaConfig.refundPercentOnBreach) / 10000;
-        
-        // Ensure we don't refund more than remaining balance
-        if (refundAmount > stream.remainingBalance) {
-            refundAmount = stream.remainingBalance;
-        }
+        // Calculate refund amount using tiered logic
+        (uint256 refundAmount, uint8 tier) = calculateTieredRefund(streamId, breachValue, breachType);
 
         if (refundAmount > 0) {
             stream.remainingBalance -= refundAmount;
             stream.totalRefunded += refundAmount;
 
             emit RefundTriggered(streamId, stream.sender, refundAmount, breachType);
+            
+            // Emit tiered refund event if using tiers
+            if (tier > 0) {
+                emit TieredRefundExecuted(streamId, tier, refundAmount, breachType, breachValue);
+            }
 
             // Transfer refund to sender
             (bool success, ) = stream.sender.call{value: refundAmount}("");
@@ -406,6 +554,7 @@ contract SLAStreamFactory {
             newStream.remainingBalance = amounts[i];
             newStream.isActive = true;
             newStream.slaConfig = slaConfigs[i];
+            newStream.refundTiers = RefundTiers(0, 0, 0, 0, 0); // Empty tiers - use legacy
             newStream.breachCount = 0;
             newStream.totalRefunded = 0;
 

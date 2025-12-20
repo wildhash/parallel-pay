@@ -4,6 +4,17 @@ import AgentOracleArtifact from '../artifacts/contracts/AgentOracle.sol/AgentOra
 import SLAStreamFactoryArtifact from '../artifacts/contracts/SLAStreamFactory.sol/SLAStreamFactory.json' with { type: 'json' };
 
 /**
+ * Refund tier configuration
+ */
+export interface RefundTiers {
+  tier1RefundPercent: number;  // Minor breach (basis points 0-10000)
+  tier2RefundPercent: number;  // Moderate breach
+  tier3RefundPercent: number;  // Severe breach
+  tier1Threshold: number;      // Breach value threshold for tier 1
+  tier2Threshold: number;      // Breach value threshold for tier 2
+}
+
+/**
  * Refund execution options
  */
 export interface RefundOptions {
@@ -21,6 +32,8 @@ export interface RefundResult {
   transactionHash: string;
   streamId: bigint;
   type: 'partial' | 'full' | 'cancel';
+  tier?: number;           // NEW: Which tier was applied
+  refundAmount?: bigint;   // NEW: Actual refund amount
   error?: string;
 }
 
@@ -73,6 +86,23 @@ export class RefundExecutor {
         breachValue: options.breachValue,
       });
 
+      // Try to get tier information first
+      let tier: number | undefined;
+      let refundAmount: bigint | undefined;
+      
+      try {
+        const [amount, tierNum] = await this.streamFactoryContract.calculateTieredRefund(
+          options.streamId,
+          options.breachValue,
+          options.breachType
+        );
+        refundAmount = amount;
+        tier = Number(tierNum);
+      } catch (e) {
+        // If calculateTieredRefund fails, continue without tier info
+        console.log('   Note: Could not calculate tier information');
+      }
+
       const tx = await this.refundManagerContract.executePartialRefund(
         options.streamId,
         options.breachType,
@@ -83,12 +113,17 @@ export class RefundExecutor {
 
       console.log(`✅ Partial refund executed successfully`);
       console.log(`   Transaction: ${receipt.hash}`);
+      if (tier !== undefined && tier > 0) {
+        console.log(`   Tier: ${tier} (${refundAmount ? ethers.formatEther(refundAmount) : 'unknown'} ETH)`);
+      }
 
       return {
         success: true,
         transactionHash: receipt.hash,
         streamId: options.streamId,
         type: 'partial',
+        tier,
+        refundAmount,
       };
     } catch (error: any) {
       console.error(`❌ Failed to execute partial refund:`, error.message);
@@ -296,6 +331,22 @@ export class RefundExecutor {
   }
 
   /**
+   * Get refund tiers configuration for a stream
+   */
+  async getRefundTiers(streamId: bigint): Promise<RefundTiers> {
+    const stream = await this.streamFactoryContract.getStream(streamId);
+    
+    // The stream struct includes refundTiers
+    return {
+      tier1RefundPercent: Number(stream.refundTiers.tier1RefundPercent),
+      tier2RefundPercent: Number(stream.refundTiers.tier2RefundPercent),
+      tier3RefundPercent: Number(stream.refundTiers.tier3RefundPercent),
+      tier1Threshold: Number(stream.refundTiers.tier1Threshold),
+      tier2Threshold: Number(stream.refundTiers.tier2Threshold),
+    };
+  }
+
+  /**
    * Listen for refund events
    */
   async listenForRefunds(callback: (event: any) => void): Promise<void> {
@@ -333,15 +384,28 @@ export class RefundExecutor {
       callback({ type: 'cancel', event });
     };
 
+    const tieredRefundListener = (streamId: any, tier: any, amount: any, breachType: any, breachValue: any, event: any) => {
+      console.log(`💰 TIERED REFUND EVENT:`, {
+        streamId: streamId.toString(),
+        tier: tier.toString(),
+        amount: ethers.formatEther(amount),
+        breachType,
+        breachValue: breachValue.toString(),
+      });
+      callback({ type: 'tiered', tier: Number(tier), event });
+    };
+
     this.refundManagerContract.on('PartialRefundExecuted', partialListener);
     this.refundManagerContract.on('FullRefundExecuted', fullListener);
     this.refundManagerContract.on('StreamCancelledByRefund', cancelListener);
+    this.refundManagerContract.on('TieredRefundExecuted', tieredRefundListener);
 
     // Store cleanup function
     this.refundListenerCleanup = () => {
       this.refundManagerContract.off('PartialRefundExecuted', partialListener);
       this.refundManagerContract.off('FullRefundExecuted', fullListener);
       this.refundManagerContract.off('StreamCancelledByRefund', cancelListener);
+      this.refundManagerContract.off('TieredRefundExecuted', tieredRefundListener);
     };
 
     console.log('👂 Listening for refund events...');
