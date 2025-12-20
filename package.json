@@ -20,7 +20,9 @@
   "license": "ISC",
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.2",
-    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.14",
+    "@nomicfoundation/hardhat-verify": "^2.0.13",
     "@typechain/ethers-v6": "^0.5.1",
     "@typechain/hardhat": "^9.1.0",
     "@types/chai": "^5.2.3",
@@ -37,6 +39,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1"
   },
