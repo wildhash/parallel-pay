@@ -1,638 +1,373 @@
-# ParallelStream 🚀
+# Cronos ParallelPay
 
-Massively parallel SLA-enforced payment streams on Monad with AI-powered monitoring and automatic trustless refunds.
+**Agentic, gasless x402 micropayments + streaming payouts with SLA-backed refunds on Cronos.**
 
-## Overview
+Cronos ParallelPay is an AI-native payment infrastructure for the x402 protocol, enabling autonomous agents to buy APIs, data, and services via HTTP 402 with gasless USDC.e payments through the Cronos x402 Facilitator (EIP-3009).
 
-ParallelStream is a next-generation SLA-aware payment streaming protocol optimized for Monad's parallel EVM architecture. It combines high-throughput payment streaming with automated SLA monitoring, breach detection, and refund execution—enabling trustless service-level agreements with automatic financial guarantees.
+## What Makes This Different
 
-### Key Features
-
-- **🔥 Parallel Execution**: Independent storage slots per stream for zero lock contention
-- **⚡ High Throughput**: Batch creation of 50-200 streams concurrently
-- **💸 Real-time Streaming**: Continuous payment flows with per-second rates
-- **📊 SLA Monitoring**: AI agent monitors latency, uptime, error rate, and jitter
-- **🤖 Auto Refunds**: Automatic partial/full refunds on SLA breaches
-- **🔄 X402 Protocol**: Agent-to-agent payments with automatic refund layer
-- **📈 Live Dashboard**: Real-time visualization with SLA metrics
-- **🛡️ Secure**: Gas-optimized Solidity contracts with trustless execution
+- **x402 Native**: Full HTTP 402 payment flow with Cronos x402 Facilitator integration
+- **Gasless Payments**: Buyers pay with USDC.e using EIP-3009 `transferWithAuthorization` - no gas needed
+- **SLA-Backed Streams**: Continuous payment flows with automatic refunds when service guarantees are broken
+- **Agent-First Design**: Built for AI agents to autonomously pay for and consume services
+- **Graduated Refunds**: Tiered refund system based on breach severity (10%/25%/50%)
 
 ## Architecture
 
-### Smart Contracts
+```
+                    ┌─────────────────────────────────────────────────────┐
+                    │                  CRONOS x402 FLOW                    │
+                    └─────────────────────────────────────────────────────┘
 
-#### SLAStreamFactory.sol
-SLA-enforced payment streaming with automatic refund triggers:
-- `createStream()` - Create streams with SLA configuration
-- `batchCreateStreams()` - Create 50-200 streams in parallel
-- `reportSLABreach()` - Report SLA violations and trigger refunds
-- `withdrawFromStream()` - Withdraw available funds
-- `cancelStream()` - Cancel and settle streams
-- `balanceOf()` - Query available balance
-
-**SLA Configuration:**
-```solidity
-struct SLA {
-  uint16 maxLatencyMs;          // Max acceptable latency
-  uint16 minUptimePercent;      // Min uptime (0-10000 = 0.00%-100.00%)
-  uint16 maxErrorRate;          // Max error rate (0-10000)
-  uint16 maxJitterMs;           // Max jitter tolerance
-  uint16 refundPercentOnBreach; // Refund % per breach (0-10000)
-  bool autoStopOnSevereBreach;  // Auto-stop on 3+ breaches
-}
+   ┌─────────────┐         1. GET /api/data          ┌─────────────────────┐
+   │             │ ────────────────────────────────▶ │                     │
+   │  BUYER      │                                   │   SELLER API        │
+   │  AGENT      │ ◀──── 2. HTTP 402 + Requirements  │   (x402 Server)     │
+   │             │                                   │                     │
+   │  (AI/CLI)   │         3. X-PAYMENT header       │   /api/premium-data │
+   │             │ ────────────────────────────────▶ │   /api/ai-inference │
+   └─────────────┘                                   └──────────┬──────────┘
+         │                                                      │
+         │                                                      │
+         │ EIP-3009                               4. /verify    │
+         │ Authorization                          5. /settle    │
+         │                                                      │
+         ▼                                                      ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                     CRONOS x402 FACILITATOR                         │
+   │                                                                     │
+   │  • Verifies EIP-3009 signatures                                     │
+   │  • Settles USDC.e payments (gasless for buyer)                      │
+   │  • Returns txHash for proof                                         │
+   └─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ Settlement
+                                    ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                         CRONOS EVM                                  │
+   │                                                                     │
+   │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+   │  │ SLAStreamFactory │  │  RefundManager   │  │   AgentOracle    │  │
+   │  │                  │  │                  │  │                  │  │
+   │  │ • Create streams │  │ • Partial refund │  │ • Submit metrics │  │
+   │  │ • SLA config     │  │ • Full refund    │  │ • Breach detect  │  │
+   │  │ • Auto-stop      │  │ • Graduated tier │  │ • Signed reports │  │
+   │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+   │                                                                     │
+   │  USDC.e: 0xc01efAaF7C5C61bEbFAeb358E1161b537b8bC0e0 (testnet)      │
+   └─────────────────────────────────────────────────────────────────────┘
 ```
 
-#### RefundManager.sol
-Executes refunds when SLA breaches occur:
-- `executePartialRefund()` - Partial refund on minor breach
-- `executeFullRefund()` - Full refund on severe breach
-- `cancelStreamDueToSLA()` - Cancel stream for violations
-- `batchExecutePartialRefunds()` - Parallel refund execution
+## Quick Start
 
-#### AgentOracle.sol
-Receives and validates signed metric reports from AI agents:
-- `submitMetricReport()` - Submit metrics from authorized agent
-- `submitSignedMetricReport()` - Submit with signature verification
-- `batchSubmitMetricReports()` - Batch submit for 50-200 streams
+### Prerequisites
 
-#### ParallelPay.sol
-Core streaming contract with isolated storage slots for parallel execution:
-- `createStream()` - Create individual payment streams
-- `batchCreateStreams()` - Create multiple streams in parallel
-- `withdrawFromStream()` - Withdraw available funds
-- `cancelStream()` - Cancel and settle streams
-- `balanceOf()` - Query available balance
+1. Get testnet CRO from [Cronos Faucet](https://cronos.org/faucet)
+2. Get testnet USDC.e from [USDC.e Faucet](https://faucet.cronos.org)
 
-#### X402Payment.sol
-Agent-to-agent payment protocol with refund layer (HTTP 402 inspired):
-- `createPaymentRequest()` - Create payment requests
-- `payRequest()` - Pay for services
-- `requestRefund()` - Request refunds within policy window
-- `setRefundPolicy()` - Configure refund policies
-- `batchCreatePaymentRequests()` - Parallel request creation
-
-### AI Agent SDK
-
-**Location:** `/agent-sdk/`
-
-Full-featured SDK for SLA monitoring and refund execution:
-
-```typescript
-import { SLAMonitor, RefundExecutor, ParallelRunner } from './agent-sdk';
-
-// Initialize monitor
-const monitor = new SLAMonitor(oracleAddress, streamFactoryAddress, signer);
-monitor.addStream(streamId);
-monitor.startMonitoring(10000); // Check every 10s
-
-// Initialize refund executor
-const refundExecutor = new RefundExecutor(
-  refundManagerAddress,
-  oracleAddress,
-  streamFactoryAddress,
-  signer
-);
-
-// Start automatic refund execution
-refundExecutor.startAutoRefund(1, 3); // Threshold: 1, Severity: 3
-
-// Run stress test with 100 streams
-const runner = new ParallelRunner(streamFactoryAddress, signer, provider);
-await runner.runStressTest(100, monitor, refundExecutor, oracleAddress);
-```
-
-### TypeScript SDK
-
-Full-featured SDK for interacting with contracts:
-```typescript
-import { ParallelPaySDK, X402PaymentSDK } from './sdk';
-
-const sdk = new ParallelPaySDK(contractAddress, signer);
-await sdk.createStream(recipient, startTime, stopTime, amount);
-```
-
-## Installation
+### Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/wildhash/monad-parallelstream.git
-cd monad-parallelstream
+git clone https://github.com/wildhash/parallel-pay.git cronos-parallelpay
+cd cronos-parallelpay
 
 # Install dependencies
 npm install
 
-# Set up environment
+# Configure environment
 cp .env.example .env
-# Edit .env with your configuration
+# Edit .env with your private key
 ```
 
-## Usage
-
-### 1. Compile Contracts
+### Deploy Contracts
 
 ```bash
-npm run compile
+# Deploy to Cronos Testnet
+npm run deploy:cronos-testnet
+
+# Or deploy to Cronos Mainnet
+npm run deploy:cronos
 ```
 
-### 2. Deploy to Monad Testnet
+### Run the x402 Demo
 
+**Terminal 1 - Start the Seller API:**
 ```bash
-# Configure .env with your PRIVATE_KEY and MONAD_RPC_URL
-npm run deploy
+npm run seller-api
+# Server running on http://localhost:3001
 ```
 
-### 3. Run Stress Test
-
-Test parallel execution with 50-200 concurrent streams:
-
+**Terminal 2 - Run the Buyer Agent:**
 ```bash
-# Default: 50 streams
-npm run stress-parallel
-
-# Custom count (up to 200)
-npm run stress-parallel 100
-npm run stress-parallel 200
+npm run buyer-agent
+# Agent will: 1) Get 402, 2) Sign payment, 3) Receive data
 ```
 
-Example output:
-```
-🧪 Test 1: Creating 50 streams in parallel
-✓ Created 50 streams successfully
-⏱️  Time taken: 3247ms
-⛽ Gas used: 12500000
-📊 Average: 64.94ms per stream
-
-📊 Test 2: Generating metric spikes
-✓ Generated 250 metrics (5 rounds × 50 streams)
-⏱️  Time taken: 5120ms
-
-💰 Test 3: Executing parallel refunds
-✓ Executed 10 refunds successfully
-⏱️  Time taken: 1840ms
-```
-
-### 4. Simulate SLA Degradation
-
-Demonstrate automatic refunds on SLA breaches:
-
-```bash
-npm run simulate-degradation
-```
-
-This creates streams with strict SLA, submits degraded metrics, and triggers automatic refunds.
-
-### 5. Launch Dashboard
-
-View real-time stream data:
-
+**Terminal 3 - View Dashboard:**
 ```bash
 npm run dashboard
+# Open http://localhost:3000
 ```
 
-Open http://localhost:3000 in your browser.
+## Core Components
 
-### 6. Run Tests
+### 1. Seller API (`apps/seller-api`)
 
-```bash
-# Compile contracts
-npm run compile
-
-# Run full test suite
-npm run test
-
-# Run Hardhat tests only
-npm run test-hardhat
-```
-
-## SLA-Aware Streaming
-
-### How It Works
-
-1. **Stream Creation with SLA**: Sender creates a stream with specific SLA thresholds
-2. **AI Agent Monitoring**: Authorized agents continuously monitor service metrics
-3. **Breach Detection**: Metrics are evaluated against SLA thresholds
-4. **Automatic Refunds**: Breaches trigger partial or full refunds to sender
-5. **Auto-Stop**: Severe breaches (3+) can automatically stop the stream
-
-### SLA Metrics
-
-- **Latency**: Response time in milliseconds
-- **Uptime**: Service availability percentage (99.00%+)
-- **Error Rate**: Percentage of failed requests (< 1.00%)
-- **Jitter**: Variance in latency (ms)
-
-### Refund Policies
+x402-compliant Express server that:
+- Returns HTTP 402 with payment requirements when unauthorized
+- Accepts `X-PAYMENT` header with EIP-3009 authorization
+- Calls Cronos x402 Facilitator to verify and settle payments
+- Serves premium content after successful payment
 
 ```typescript
-// Strict SLA (10% refund per breach)
-const strictSLA = {
-  maxLatencyMs: 200,
-  minUptimePercent: 9950,    // 99.50%
-  maxErrorRate: 50,          // 0.50%
-  maxJitterMs: 50,
-  refundPercentOnBreach: 1000, // 10%
-  autoStopOnSevereBreach: true
+// Example x402 response
+HTTP/1.1 402 Payment Required
+X-Payment-Required: true
+Content-Type: application/json
+
+{
+  "paymentRequired": true,
+  "amount": "100000",           // 0.10 USDC.e (6 decimals)
+  "currency": "USDC.e",
+  "recipient": "0x...",
+  "chainId": 338,
+  "facilitatorUrl": "https://facilitator.cronoslabs.org/v2/x402"
+}
+```
+
+### 2. Buyer Agent (`apps/buyer-agent`)
+
+Autonomous agent that:
+- Detects HTTP 402 responses
+- Generates EIP-3009 `transferWithAuthorization` signatures
+- Submits payment via `X-PAYMENT` header
+- Processes received data
+
+```typescript
+// EIP-3009 Authorization (gasless!)
+const authorization = await generateEIP3009Authorization({
+  token: USDC_ADDRESS,
+  from: buyerAddress,
+  to: sellerAddress,
+  value: amount,
+  validAfter: 0,
+  validBefore: deadline,
+  nonce: randomNonce
+});
+```
+
+### 3. Smart Contracts
+
+| Contract | Purpose |
+|----------|---------|
+| **SLAStreamFactory** | Create streams with SLA guarantees and graduated refund tiers |
+| **RefundManager** | Execute partial/full refunds based on breach severity |
+| **AgentOracle** | Receive and validate SLA metrics from authorized agents |
+| **X402Payment** | On-chain payment requests with refund policies |
+| **ParallelPay** | Base streaming contract with parallel execution support |
+
+### 4. SLA-Backed Streaming
+
+Create streams with automatic refund guarantees:
+
+```typescript
+const slaConfig = {
+  maxLatencyMs: 200,           // Max 200ms response time
+  minUptimePercent: 9950,      // 99.50% uptime required
+  maxErrorRate: 50,            // Max 0.50% error rate
+  maxJitterMs: 50,             // Max 50ms jitter
+  refundPercentOnBreach: 1000, // 10% refund per breach
+  autoStopOnSevereBreach: true // Auto-cancel on 3+ breaches
 };
 
-// Moderate SLA (5% refund per breach)
-const moderateSLA = {
-  maxLatencyMs: 500,
-  minUptimePercent: 9900,    // 99.00%
-  maxErrorRate: 100,         // 1.00%
-  maxJitterMs: 100,
-  refundPercentOnBreach: 500, // 5%
-  autoStopOnSevereBreach: true
-};
+// Graduated refund tiers
+// Tier 1: 10% refund (minor breach)
+// Tier 2: 25% refund (moderate breach)
+// Tier 3: 50% refund (severe breach)
 ```
 
-### Use Cases
+## Network Configuration
 
-1. **API Monetization**: Pay-per-call with SLA guarantees
-2. **Cloud Services**: Infrastructure payments with uptime SLAs
-3. **Data Streaming**: Real-time data feeds with latency guarantees
-4. **Agent Services**: AI agent payments with performance SLAs
-5. **Content Delivery**: CDN payments with availability guarantees
+### Cronos Testnet
+- **Chain ID**: 338
+- **RPC**: `https://evm-t3.cronos.org`
+- **Explorer**: `https://explorer.cronos.org/testnet`
+- **USDC.e**: `0xc01efAaF7C5C61bEbFAeb358E1161b537b8bC0e0`
+- **Faucet**: https://faucet.cronos.org
 
-## Parallel Execution Benefits
+### Cronos Mainnet
+- **Chain ID**: 25
+- **RPC**: `https://evm.cronos.org`
+- **Explorer**: `https://explorer.cronos.org`
+- **USDC.e**: `0xc21223249CA28397B4B6541dfFaEcC539BfF0c59`
 
-### Traditional Approach
-- Sequential processing
-- Lock contention on shared storage
-- Limited throughput
-
-### ParallelPay Approach
-- **Isolated Storage Slots**: Each stream uses independent storage
-- **Zero Lock Contention**: Parallel transactions don't block each other
-- **Linear Scaling**: Throughput scales with available cores
-- **Optimized for Monad**: Leverages Monad's parallel EVM architecture
-
-### Performance Characteristics
-
-```
-Streams Created: 50-100 concurrent
-Gas Optimization: ~20-30% reduction via isolated slots
-Parallel Speedup: 5-10x vs sequential
-Storage Layout: O(1) access per stream
-```
-
-## X402 Payment Protocol
-
-### Agent-to-Agent Payments
-
-Inspired by HTTP 402 (Payment Required), X402 enables:
-
-1. **Payment Requests**: Services create payment requests with metadata
-2. **Conditional Payments**: Pay only when content/service is delivered
-3. **Refund Layer**: Automatic refunds within policy windows
-4. **Penalty System**: Configurable penalties for refunds
-
-### Use Cases
-
-- API monetization with pay-per-call
-- Content delivery with verification
-- Service subscriptions with guarantees
-- Agent-to-agent value transfer
+### x402 Facilitator
+- **URL**: `https://facilitator.cronoslabs.org/v2/x402`
+- **Endpoints**: `/verify`, `/settle`, `/supported`
 
 ## API Reference
 
-### SLAStreamFactory Contract
+### Seller API Endpoints
 
-```solidity
-// Create stream with SLA configuration
-function createStream(
-    address recipient,
-    address token,
-    uint256 startTime,
-    uint256 stopTime,
-    SLA calldata slaConfig
-) external payable returns (uint256 streamId)
-
-// Batch create multiple streams with SLA
-function batchCreateStreams(
-    address[] calldata recipients,
-    address[] calldata tokens,
-    uint256[] calldata startTimes,
-    uint256[] calldata stopTimes,
-    uint256[] calldata amounts,
-    SLA[] calldata slaConfigs
-) external payable returns (uint256[] memory streamIds)
-
-// Report SLA breach (authorized oracles only)
-function reportSLABreach(
-    uint256 streamId,
-    string calldata breachType,
-    uint256 breachValue
-) external
-
-// Withdraw from stream
-function withdrawFromStream(uint256 streamId, uint256 amount) external
-
-// Cancel stream
-function cancelStream(uint256 streamId) external
-
-// Query available balance
-function balanceOf(uint256 streamId) public view returns (uint256)
-
-// Get stream details
-function getStream(uint256 streamId) external view returns (SLAStream memory)
+```
+GET  /api/premium-data      - Premium data endpoint (requires x402 payment)
+GET  /api/ai-inference      - AI inference endpoint (requires x402 payment)
+GET  /api/health            - Health check
+GET  /api/pricing           - View pricing information
+POST /api/streams           - Create SLA-backed stream
+GET  /api/streams/:id       - Get stream details
 ```
 
-### AgentOracle Contract
+### Dashboard Endpoints
 
-```solidity
-// Submit metric report (authorized agents only)
-function submitMetricReport(
-    uint256 streamId,
-    uint256 latencyMs,
-    uint256 uptimePercent,
-    uint256 errorRate,
-    uint256 jitterMs
-) external returns (uint256 reportId)
-
-// Submit signed metric report with signature verification
-function submitSignedMetricReport(
-    uint256 streamId,
-    uint256 latencyMs,
-    uint256 uptimePercent,
-    uint256 errorRate,
-    uint256 jitterMs,
-    bytes calldata signature
-) external returns (uint256 reportId)
-
-// Batch submit metrics for multiple streams
-function batchSubmitMetricReports(
-    uint256[] calldata streamIds,
-    uint256[] calldata latencies,
-    uint256[] calldata uptimes,
-    uint256[] calldata errorRates,
-    uint256[] calldata jitters
-) external returns (uint256[] memory reportIds)
-
-// Get metric report details
-function getMetricReport(uint256 reportId) 
-    external view returns (MetricReport memory)
+```
+GET  /api/info              - Deployment information
+GET  /api/streams/:count    - List recent streams
+GET  /api/stream/:id        - Get specific stream details
+GET  /api/payments          - List x402 payments
+GET  /api/refunds           - List refund events
 ```
 
-### RefundManager Contract
+## Agent SDK
 
-```solidity
-// Execute partial refund for SLA breach
-function executePartialRefund(
-    uint256 streamId,
-    string calldata breachType,
-    uint256 breachValue
-) external
-
-// Execute full refund for severe breach
-function executeFullRefund(
-    uint256 streamId,
-    string calldata reason
-) external
-
-// Cancel stream due to SLA violations
-function cancelStreamDueToSLA(
-    uint256 streamId,
-    string calldata reason
-) external
-
-// Batch execute partial refunds
-function batchExecutePartialRefunds(
-    uint256[] calldata streamIds,
-    string[] calldata breachTypes,
-    uint256[] calldata breachValues
-) external
-
-// Get refund execution details
-function getRefundExecution(uint256 executionId)
-    external view returns (RefundExecution memory)
-```
-
-### AI Agent SDK API
+Full-featured SDK for building x402-compatible agents:
 
 ```typescript
-// SLAMonitor
-class SLAMonitor {
-  addStream(streamId: bigint): void
-  removeStream(streamId: bigint): void
-  collectMetrics(streamId: bigint): Promise<SLAMetrics>
-  collectDegradedMetrics(streamId: bigint): Promise<SLAMetrics>
-  evaluateSLA(metrics: SLAMetrics, config: SLAConfig): Promise<SLABreachResult>
-  submitMetrics(metrics: SLAMetrics): Promise<ContractTransactionResponse>
-  submitSignedMetrics(metrics: SLAMetrics): Promise<ContractTransactionResponse>
-  batchSubmitMetrics(metricsList: SLAMetrics[]): Promise<ContractTransactionResponse>
-  startMonitoring(intervalMs: number, degraded: boolean): void
-  stopMonitoring(): void
-  listenForBreaches(callback: (event: any) => void): Promise<void>
-}
+import { SLAMonitor, RefundExecutor, X402Client } from './agent-sdk';
 
-// RefundExecutor
-class RefundExecutor {
-  executePartialRefund(options: RefundOptions): Promise<RefundResult>
-  executeFullRefund(streamId: bigint, reason: string): Promise<RefundResult>
-  cancelStreamDueToSLA(streamId: bigint, reason: string): Promise<RefundResult>
-  batchExecutePartialRefunds(options: RefundOptions[]): Promise<RefundResult[]>
-  startAutoRefund(breachThreshold: number, severityThreshold: number): Promise<void>
-  stopAutoRefund(): void
-  getStreamStatus(streamId: bigint): Promise<any>
-  listenForRefunds(callback: (event: any) => void): Promise<void>
-}
+// Initialize x402 client
+const x402 = new X402Client({
+  facilitatorUrl: 'https://facilitator.cronoslabs.org/v2/x402',
+  signer: wallet
+});
 
-// ParallelRunner
-class ParallelRunner {
-  createStreamsParallel(
-    count: number,
-    recipient: string,
-    amountPerStream: bigint,
-    durationSeconds: number,
-    slaSeverity: 'strict' | 'moderate' | 'lenient'
-  ): Promise<BenchmarkResult>
-  
-  generateMetricSpikes(
-    monitor: SLAMonitor,
-    streamIds: bigint[],
-    spikeCount: number,
-    degraded: boolean
-  ): Promise<BenchmarkResult>
-  
-  executeParallelRefunds(
-    refundExecutor: RefundExecutor,
-    streamIds: bigint[],
-    breachType: string,
-    breachValue: number
-  ): Promise<BenchmarkResult>
-  
-  runStressTest(
-    streamCount: number,
-    monitor: SLAMonitor,
-    refundExecutor: RefundExecutor,
-    oracleAddress: string,
-    recipient?: string
-  ): Promise<void>
-  
-  benchmarkParallelism(
-    count: number,
-    recipient: string
-  ): Promise<{ parallel: BenchmarkResult; sequential: BenchmarkResult }>
-}
+// Make x402 payment
+const result = await x402.payForResource({
+  url: 'https://api.example.com/premium-data',
+  amount: '100000', // 0.10 USDC.e
+});
+
+// Initialize SLA monitor
+const monitor = new SLAMonitor(oracleAddress, streamFactoryAddress, signer);
+monitor.addStream(streamId);
+monitor.startMonitoring(10000); // Check every 10s
+
+// Listen for breaches and auto-refund
+monitor.on('breach', async (event) => {
+  const refundExecutor = new RefundExecutor(refundManagerAddress, signer);
+  await refundExecutor.executePartialRefund({
+    streamId: event.streamId,
+    breachType: event.breachType,
+    breachValue: event.breachValue
+  });
+});
 ```
 
-### ParallelPay Contract
+## Demo Flows
 
-```solidity
-function createStream(
-    address recipient,
-    uint256 startTime,
-    uint256 stopTime
-) external payable returns (uint256 streamId)
-
-function batchCreateStreams(
-    address[] calldata recipients,
-    uint256[] calldata startTimes,
-    uint256[] calldata stopTimes,
-    uint256[] calldata amounts
-) external payable returns (uint256[] memory streamIds)
-
-function withdrawFromStream(uint256 streamId, uint256 amount) external
-
-function cancelStream(uint256 streamId) external
-
-function balanceOf(uint256 streamId) public view returns (uint256)
-```
-
-### X402Payment Contract
-
-```solidity
-function createPaymentRequest(
-    address payer,
-    uint256 amount,
-    uint256 deadline,
-    bytes32 contentHash,
-    string calldata metadata
-) external returns (uint256 requestId)
-
-function payRequest(uint256 requestId) external payable
-
-function requestRefund(uint256 requestId) external
-
-function setRefundPolicy(
-    uint256 refundWindow,
-    uint256 penaltyPercent,
-    bool autoRefundEnabled
-) external
-```
-
-## Dashboard API
-
-### Endpoints
-
-```
-GET /api/info                    - Deployment information
-GET /api/streams/:count          - List recent streams
-GET /api/stream/:id              - Get specific stream details
-GET /api/payment-requests/:count - List payment requests
-```
-
-## Development
-
-### Project Structure
-
-```
-monad-parallelstream/
-├── contracts/           # Solidity smart contracts
-│   ├── ParallelPay.sol
-│   └── X402Payment.sol
-├── sdk/                 # TypeScript SDK
-│   └── index.ts
-├── scripts/             # Deployment and testing scripts
-│   ├── compile.js
-│   ├── deploy.ts
-│   └── stress-test.ts
-├── dashboard/           # Real-time dashboard
-│   ├── server.ts
-│   └── public/
-│       └── index.html
-├── artifacts/           # Compiled contracts
-├── deployments/         # Deployment records
-└── test/               # Test files
-```
-
-### Running Tests
+### Flow A: Basic x402 Paywall
 
 ```bash
-# Run stress test against local node
-npm run stress-test
+# 1. Buyer requests resource
+curl http://localhost:3001/api/premium-data
+# Returns: 402 Payment Required
 
-# Deploy to Monad Testnet
-npm run deploy
-
-# Start dashboard
-npm run dashboard
+# 2. Buyer pays and retries
+curl -H "X-PAYMENT: <eip3009-auth>" http://localhost:3001/api/premium-data
+# Returns: { "data": "premium content", "txHash": "0x..." }
 ```
 
-## Monad Testnet Deployment
-
-### Prerequisites
-
-1. Get testnet tokens from [Monad Faucet](https://faucet.monad.xyz)
-2. Configure `.env`:
-```bash
-PRIVATE_KEY=your_private_key_here
-MONAD_RPC_URL=https://testnet.monad.xyz
-```
-
-### Deployment
+### Flow B: Streaming with SLA
 
 ```bash
-npm run deploy
+# 1. Create stream with SLA config
+npm run create-stream -- --recipient 0x... --amount 1000000 --sla strict
+
+# 2. Monitor metrics
+npm run monitor-stream -- --streamId 1
+
+# 3. Simulate breach and auto-refund
+npm run simulate-degradation
 ```
 
-Deployment addresses are saved to `deployments/monad-testnet.json`.
+### Flow C: Full Agent Workflow
 
-## Security Considerations
+```bash
+# Run complete autonomous agent demo
+npm run agent-demo
 
-- ✅ Custom errors for gas efficiency
-- ✅ Reentrancy protection via checks-effects-interactions
-- ✅ Isolated storage slots prevent cross-stream interference
-- ✅ Integer overflow protection (Solidity 0.8+)
-- ✅ Access control on sensitive operations
-- ✅ Deadline validation on payment requests
+# This will:
+# 1. Deploy fresh contracts
+# 2. Create SLA-backed stream
+# 3. Monitor service metrics
+# 4. Detect breach and execute refund
+# 5. Log everything to dashboard
+```
 
-## Gas Optimization
+## Scripts
 
-### Techniques Used
+```bash
+npm run compile              # Compile Solidity contracts
+npm run deploy:cronos-testnet # Deploy to Cronos testnet
+npm run deploy:cronos        # Deploy to Cronos mainnet
 
-1. **Custom Errors**: 50% gas savings vs strings
-2. **Storage Packing**: Efficient struct layout
-3. **Batch Operations**: Amortized costs across multiple operations
-4. **View Functions**: Off-chain queries at zero cost
-5. **viaIR Compilation**: Advanced optimizer with Yul intermediate representation
+npm run seller-api           # Start x402 seller server
+npm run buyer-agent          # Run autonomous buyer agent
+npm run dashboard            # Start dashboard UI
 
-## Contributing
+npm run stress-parallel      # Run parallel execution benchmark
+npm run simulate-degradation # Simulate SLA breach and refund
 
-Contributions are welcome! Please:
+npm run test                 # Run full test suite
+npm run test-hardhat         # Run Hardhat tests only
+```
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+## Use Cases
+
+1. **API Monetization**: Pay-per-call APIs with automatic refunds on downtime
+2. **AI Agent Services**: Agents buying compute, data, or inference with SLA guarantees
+3. **Data Streaming**: Real-time feeds with latency guarantees
+4. **CDN Services**: Content delivery with availability SLAs
+5. **Cloud Infrastructure**: Pay-per-use compute with uptime guarantees
+
+## Hackathon Submission
+
+**Cronos x402 Paytech Hackathon** - January 2026
+
+### Tracks
+- [x] Main Track: x402 Applications
+- [x] x402 Agentic Finance Track
+- [x] Crypto.com Ecosystem Integration
+- [x] Dev Tooling Track
+
+### What We Built
+1. **Full x402 Integration**: Seller API + Buyer Agent with Cronos Facilitator
+2. **SLA-Backed Streaming**: Automatic refunds on service degradation
+3. **Graduated Refund Tiers**: 10%/25%/50% based on breach severity
+4. **Real-time Dashboard**: Live payment and SLA monitoring
+5. **Agent SDK**: Full toolkit for building x402-compatible agents
+
+## Resources
+
+- [Cronos x402 Facilitator Docs](https://docs.cronos.org/cronos-x402-facilitator/introduction)
+- [Quick Start for Sellers](https://docs.cronos.org/cronos-x402-facilitator/quick-start-for-sellers)
+- [Quick Start for Buyers](https://docs.cronos.org/cronos-x402-facilitator/quick-start-for-buyers)
+- [Cronos EVM Docs](https://docs.cronos.org)
+- [Crypto.com AI Agent SDK](https://ai-agent-sdk-docs.crypto.com/)
+
+## Security
+
+- Checks-effects-interactions pattern
+- Reentrancy guards on all external calls
+- EIP-3009 signature verification
+- Access control on sensitive operations
+- Custom errors for gas efficiency
 
 ## License
 
 ISC
 
-## Links
-
-- **Repository**: https://github.com/wildhash/monad-parallelstream
-- **Monad Network**: https://monad.xyz
-- **Documentation**: See this README
-
-## Support
-
-For issues and questions:
-- Open a GitHub issue
-- Join the Monad Discord
-
 ---
 
-**Built for Monad's Parallel EVM** | Optimized for Massive Concurrency | Real-time Value Transfer at Scale
-
+**Built for Cronos x402** | Gasless Agentic Payments | SLA-Backed Streams | Automatic Refunds

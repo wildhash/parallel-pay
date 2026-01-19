@@ -1,21 +1,44 @@
 {
-  "name": "monad-parallelstream",
-  "version": "1.0.0",
-  "description": "Massively parallel micro-payment streams exploiting Monad's EVM for real-time value transfer at scale.",
+  "name": "cronos-parallelpay",
+  "version": "2.0.0",
+  "description": "Agentic, gasless x402 micropayments + streaming payouts with SLA-backed refunds on Cronos.",
   "main": "index.js",
   "scripts": {
     "compile": "node scripts/compile.js",
     "verify": "npx tsx scripts/verify-contracts.ts",
-    "deploy": "npx tsx scripts/deploy.ts",
+
+    "deploy": "npx tsx scripts/deploy.ts --network=cronos-testnet",
+    "deploy:cronos-testnet": "npx tsx scripts/deploy.ts --network=cronos-testnet",
+    "deploy:cronos": "npx tsx scripts/deploy.ts --network=cronos",
+    "deploy:monad-testnet": "npx tsx scripts/deploy.ts --network=monad-testnet",
+
+    "seller-api": "npx tsx apps/seller-api/index.ts",
+    "buyer-agent": "npx tsx apps/buyer-agent/index.ts",
+    "dashboard": "npx tsx dashboard/server.ts",
+
     "stress-test": "npx tsx scripts/stress-test.ts",
     "stress-parallel": "npx tsx scripts/stress-parallel.ts",
     "simulate-degradation": "npx tsx scripts/simulate-degradation.ts",
+
     "test-local": "npx tsx scripts/test-local.ts",
     "test-hardhat": "npx hardhat test",
-    "dashboard": "npx tsx dashboard/server.ts",
-    "test": "npm run compile && npm run test-hardhat"
+    "test": "npm run compile && npm run test-hardhat",
+
+    "demo": "npm run seller-api & sleep 2 && npm run buyer-agent",
+    "start": "npm run dashboard"
   },
-  "keywords": [],
+  "keywords": [
+    "cronos",
+    "x402",
+    "payments",
+    "streaming",
+    "sla",
+    "eip-3009",
+    "gasless",
+    "agent",
+    "ai",
+    "crypto"
+  ],
   "author": "",
   "license": "ISC",
   "devDependencies": {
@@ -43,5 +66,12 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1"
   },
-  "type": "module"
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wildhash/parallel-pay.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
